@@ -14,6 +14,7 @@ Residue template generator for the AMBER GAFF1/2 small molecule force fields.
 import contextlib
 import logging
 import os
+import sys
 
 _logger = logging.getLogger("openmmforcefields.generators.template_generators")
 
@@ -72,16 +73,41 @@ class SmallMoleculeTemplateGenerator:
         return self._forcefield
 
     @contextlib.contextmanager
-    def _open_db(self):
+    def _open_db(self, readonly=False):
         """Open the cache database.
         """
         from tinydb import TinyDB
+        import fasteners
+
+        # Write permissions are needed to create the cache
+        if not os.path.exists(self._cache):
+            readonly = False
+
+        # Multiple processes may try to to access the cache at the same time
+        # A lock file is used which allows multiple processes to read the cache but only
+        # one process can write to the cache
+        lockfile_path = self._cache + '.lock' if self._cache else os.path.join(os.path.dirname(sys.argv[0]), 'openmmforcefields-cache.lock')
+        cache_size = os.path.getsize(self._cache) if os.path.exists(self._cache) else 0
+        timeout = cache_size*0.00002 + 300
+
+        # Wait until no other process is writing to the cache then aquire the lock
+        lock = fasteners.InterProcessReaderWriterLock(lockfile_path)
+        if readonly:
+            lock.acquire_read_lock(timeout=timeout)
+        else:
+            lock.acquire_write_lock(timeout=timeout)
+
+        access_mode = 'r' if readonly else 'r+'
         tinydb_kwargs = { 'sort_keys' : True, 'indent' : 4, 'separators' : (',', ': ') } # for pretty-printing
-        db = TinyDB(self._cache, **tinydb_kwargs)
+        db = TinyDB(self._cache, access_mode=access_mode, **tinydb_kwargs)
         try:
             yield db
         finally:
             db.close()
+            if readonly:
+                lock.release_read_lock()
+            else:
+                lock.release_write_lock()
 
     def add_molecules(self, molecules=None):
         """
@@ -281,7 +307,7 @@ class SmallMoleculeTemplateGenerator:
 
         # If a database is specified, check against molecules in the database
         if self._cache is not None:
-            with self._open_db() as db:
+            with self._open_db(readonly=True) as db:
                 table = db.table(self._database_table_name)
                 for entry in table:
                     # Skip any molecules we've added to the database this session
@@ -323,7 +349,7 @@ class SmallMoleculeTemplateGenerator:
                 forcefield.loadFile(StringIO(ffxml_contents))
                 # If a cache is specified, add this molecule
                 if self._cache is not None:
-                    with self._open_db() as db:
+                    with self._open_db(readonly=False) as db:
                         table = db.table(self._database_table_name)
                         _logger.debug(f'Writing residue template for {smiles} to cache {self._cache}')
                         record = {'smiles' : smiles, 'ffxml' : ffxml_contents}
