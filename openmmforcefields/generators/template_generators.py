@@ -14,6 +14,7 @@ import io
 import logging
 import os
 import warnings
+import sys
 
 from openmmforcefields.utils import classproperty
 
@@ -86,20 +87,44 @@ class SmallMoleculeTemplateGenerator:
         return self._forcefield
 
     @contextlib.contextmanager
-    def _open_db(self):
+    def _open_db(self, readonly=False):
         """Open the cache database."""
         from tinydb import TinyDB
+        import fasteners
 
+        # Write permissions are needed to create the cache
+        if not os.path.exists(self._cache_path):
+            readonly = False
+
+        # Multiple processes may try to to access the cache at the same time
+        # A lock file is used which allows multiple processes to read the cache but only
+        # one process can write to the cache
+        lockfile_path = self._cache_path + '.lock' if self._cache_path else os.path.join(os.path.dirname(sys.argv[0]), 'openmmforcefields-cache.lock')
+        cache_size = os.path.getsize(self._cache_path) if os.path.exists(self._cache_path) else 0
+        timeout = cache_size*0.00002 + 300
+
+        # Wait until no other process is writing to the cache then aquire the lock
+        lock = fasteners.InterProcessReaderWriterLock(lockfile_path)
+        if readonly:
+            lock.acquire_read_lock(timeout=timeout)
+        else:
+            lock.acquire_write_lock(timeout=timeout)
+
+        access_mode = 'r' if readonly else 'r+'
         tinydb_kwargs = {
             "sort_keys": True,
             "indent": 4,
             "separators": (",", ": "),
         }  # for pretty-printing
-        db = TinyDB(self._cache_path, **tinydb_kwargs)
+        db = TinyDB(self._cache_path, access_mode=access_mode, **tinydb_kwargs)
         try:
             yield db
         finally:
             db.close()
+            if readonly:
+                lock.release_read_lock()
+            else:
+                lock.release_write_lock()
 
     def add_molecules(self, molecules=None):
         """
@@ -298,7 +323,7 @@ class SmallMoleculeTemplateGenerator:
 
                 # If not, try to look one up in the on-disk cache.
                 if ffxml_contents is None and self._cache_path is not None:
-                    with self._open_db() as db:
+                    with self._open_db(readonly=True) as db:
                         for entry in db.table(self._database_table_name):
                             if entry["smiles"] == target_smiles:
                                 ffxml_contents = entry["ffxml"]
@@ -312,7 +337,7 @@ class SmallMoleculeTemplateGenerator:
                     # Store it in the in-memory cache and the on-disk cache.
                     self._ffxml_cache[target_smiles] = ffxml_contents
                     if self._cache_path is not None:
-                        with self._open_db() as db:
+                        with self._open_db(readonly=False) as db:
                             db.table(self._database_table_name).insert(
                                 {"smiles": target_smiles, "ffxml": ffxml_contents}
                             )
