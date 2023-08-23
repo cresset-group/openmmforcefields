@@ -721,7 +721,7 @@ class GAFFTemplateGenerator(SmallMoleculeTemplateGenerator):
 
         # Create the residue template
         _logger.debug(f'Creating residue template...')
-        from lxml import etree
+        from xml.etree import ElementTree as etree
         root = etree.fromstring(ffxml_contents)
         # Create residue definitions
         residues = etree.SubElement(root, "Residues")
@@ -753,7 +753,7 @@ class GAFFTemplateGenerator(SmallMoleculeTemplateGenerator):
             elif (bond.atom1 not in residue_atoms) and (bond.atom2 in residue_atoms):
                 bond = etree.SubElement(residue, "ExternalBond", atomName=bond.atom2.name)
         # Render XML into string and append to parameters
-        ffxml_contents = etree.tostring(root, pretty_print=True, encoding='unicode')
+        ffxml_contents = etree.tostring(root, encoding='unicode')
         _logger.debug(f'ffxml creation complete.')
 
         return ffxml_contents
@@ -1022,7 +1022,7 @@ class OpenMMSystemMixin:
         uses_old_api = hasattr(molecule.atoms[0], "element")
 
         # Generate OpenMM ffxml definition for this molecule
-        from lxml import etree
+        from xml.etree import ElementTree as etree
         root = etree.Element("ForceField")
 
         def as_attrib(quantity):
@@ -1169,7 +1169,7 @@ class OpenMMSystemMixin:
             bond = etree.SubElement(residue, "Bond", atomName1=bond.atom1.name, atomName2=bond.atom2.name)
 
         # Render XML into string
-        ffxml_contents = etree.tostring(root, pretty_print=True, encoding='unicode')
+        ffxml_contents = etree.tostring(root, encoding='unicode')
 
         #_logger.debug(f'{ffxml_contents}') # DEBUG
 
