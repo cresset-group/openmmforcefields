@@ -702,7 +702,7 @@ class GAFFTemplateGenerator(SmallMoleculeTemplateGenerator):
 
         # Create the residue template
         _logger.debug("Creating residue template...")
-        from lxml import etree
+        from xml.etree import ElementTree as etree
 
         root = etree.fromstring(ffxml_contents)
         # Create residue definitions
@@ -727,7 +727,7 @@ class GAFFTemplateGenerator(SmallMoleculeTemplateGenerator):
                 atomName2=bond.atom2.name,
             )
         # Render XML into string and append to parameters
-        ffxml_contents = etree.tostring(root, pretty_print=True, encoding="unicode")
+        ffxml_contents = etree.tostring(root, encoding="unicode")
         _logger.debug("ffxml creation complete.")
 
         return ffxml_contents
@@ -1018,7 +1018,7 @@ class OpenMMSystemMixin:
         """
 
         from openmm import CMMotionRemover
-        from lxml import etree
+        from xml.etree import ElementTree as etree
 
         # Remove CMMotionRemover if present
         # See https://github.com/openmm/openmmforcefields/issues/365
@@ -1226,7 +1226,7 @@ class OpenMMSystemMixin:
             etree.SubElement(residue, "Bond", atomName1=bond.atom1.name, atomName2=bond.atom2.name)
 
         # Render XML into string
-        ffxml_contents = etree.tostring(root, pretty_print=True, encoding="unicode")
+        ffxml_contents = etree.tostring(root, encoding="unicode")
 
         # _logger.debug(f'{ffxml_contents}') # DEBUG
 
